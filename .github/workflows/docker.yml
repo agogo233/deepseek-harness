@@ -27,7 +27,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/lib/jvm
           sudo docker image prune -af
 
       - name: Set lowercase name
@@ -44,15 +44,21 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        run: |
+          docker buildx build --progress=plain \
+            -f Dockerfile.DIY \
+            -t "ghcr.io/${LOWER_NAME}:latest" \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --push . 2>&1 | tee build.log
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
         with:
-          file: Dockerfile.DIY
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ghcr.io/${{ env.LOWER_NAME }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          name: docker-build-log
+          path: build.log
+          retention-days: 3
 
       - name: Keep the published package public
         run: |
