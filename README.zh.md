@@ -44,6 +44,20 @@ pnpm dsh web
 
 `pnpm run build` 会准备仓库产物。`pnpm dsh web` 会直接使用这些已构建产物，不会重新构建。
 
+### 通过 Docker 运行
+
+发布的镜像会在一个进程中启动开箱即用的 Harness，同时提供 Web UI 和一次性任务，并将数据保存在卷上：
+
+```sh
+docker run -d --name dsh -p 3080:3080 \
+  -e DEEPSEEK_API_KEY=your-key \
+  -v dsh-data:/data \
+  -v "$PWD/workspace:/workspace" \
+  ghcr.io/agogo233/deepseek-harness:latest
+```
+
+Web UI 会打印一个带令牌的启动地址。详见[容器指南](docs/user/guide/docker.zh.md)。
+
 ## 社区与支持
 
 - 通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。

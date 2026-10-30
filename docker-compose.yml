@@ -1,0 +1,17 @@
+services:
+  dsh:
+    image: ghcr.io/agogo233/deepseek-harness:latest
+    ports:
+      - "3080:3080"
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DSH_PUBLIC_URL: ${DSH_PUBLIC_URL:-http://localhost:3080/}
+      DSH_TRUSTED_HOSTS: ${DSH_TRUSTED_HOSTS:-}
+    volumes:
+      - dsh-data:/data
+      - ./workspace:/workspace
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+volumes:
+  dsh-data:
