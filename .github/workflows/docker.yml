@@ -92,24 +92,44 @@ jobs:
 
       - name: Smoke test
         run: |
-          docker rm -f dsh-smoke 2>/dev/null || true
-          docker pull ghcr.io/${{ env.LOWER_NAME }}:latest
-          docker run -d --name dsh-smoke -p 3080:3080 \
-            -e DEEPSEEK_API_KEY=unused \
-            ghcr.io/${{ env.LOWER_NAME }}:latest
-          for i in $(seq 1 60); do
-            docker logs dsh-smoke 2>&1 | grep -q 'dsh web:' && break
-            sleep 2
-          done
-          docker logs dsh-smoke
-          url=$(docker logs dsh-smoke 2>&1 | grep -o 'http://[^ ]*token=[^ ]*' | head -1)
-          test -n "$url"
-          curl -fsS "$url" -o /dev/null
-          docker rm -f dsh-smoke
-          docker run --rm \
-            -e DEEPSEEK_API_KEY=unused \
-            ghcr.io/${{ env.LOWER_NAME }}:latest \
-            headless --help | grep -q 'Answer one task and exit'
+          { set -x;
+            docker rm -f dsh-smoke 2>/dev/null || true
+            docker pull ghcr.io/${{ env.LOWER_NAME }}:latest
+            docker run -d --name dsh-smoke -p 3080:3080 \
+              -e DEEPSEEK_API_KEY=unused \
+              ghcr.io/${{ env.LOWER_NAME }}:latest
+            started=0
+            for i in $(seq 1 60); do
+              if docker logs dsh-smoke 2>&1 | grep -q 'dsh web:'; then
+                started=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "$started" != 1 ]; then
+              echo "=== dsh-smoke did not print 'dsh web:' within 120s ==="
+              docker ps -a --filter name=dsh-smoke
+              docker logs dsh-smoke 2>&1 | tail -100
+              docker inspect dsh-smoke 2>&1 | tail -40
+              exit 1
+            fi
+            url=$(docker logs dsh-smoke 2>&1 | grep -o 'http://[^ ]*token=[^ ]*' | head -1)
+            test -n "$url"
+            curl -fsS "$url" -o /dev/null
+            docker rm -f dsh-smoke
+            docker run --rm \
+              -e DEEPSEEK_API_KEY=unused \
+              ghcr.io/${{ env.LOWER_NAME }}:latest \
+              headless --help | grep -q 'Answer one task and exit'
+          } 2>&1 | tee /tmp/smoke.log
+
+      - name: Upload smoke log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-log
+          path: /tmp/smoke.log
+          retention-days: 3
 
       - name: Delete old package versions
         env:
