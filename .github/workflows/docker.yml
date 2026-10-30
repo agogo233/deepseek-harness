@@ -61,25 +61,25 @@ jobs:
           retention-days: 3
 
       - name: Keep the published package public
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           { set -x;
-            package="${GITHUB_REPOSITORY##*/}"
-            owner_type="$(curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            package_names="$(curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}" | jq -r .owner.type)"
-            if [[ "$owner_type" == "Organization" ]]; then
-              base="orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}"
-            else
-              base="user/packages/container/${package}"
-            fi
-            response="$(curl -sS -w '\nHTTP %{http_code}' -X PATCH \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "Content-Type: application/json" \
-              -d '{"visibility":"public"}' \
-              "https://api.github.com/${base}")"
-            echo "$response"
-            echo "$response" | grep -q '"visibility":"public"'
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/packages?package_type=container" \
+              | jq -r '.[].name')"
+            test -n "$package_names"
+            for package in $package_names; do
+              response="$(curl -sS -w '\nHTTP %{http_code}' -X PATCH \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "Content-Type: application/json" \
+                -d '{"visibility":"public"}' \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/packages/container/${package}")"
+              echo "$package -> $response"
+              echo "$response" | grep -q '"visibility":"public"'
+            done
           } 2>&1 | tee /tmp/visibility.log
 
       - name: Upload visibility log
@@ -112,9 +112,34 @@ jobs:
             headless --help | grep -q 'Answer one task and exit'
 
       - name: Delete old package versions
-        uses: actions/delete-package-versions@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          { set -x;
+            for package in $(curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/packages?package_type=container" \
+              | jq -r '.[].name'); do
+              versions="$(curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/packages/container/${package}/versions")"
+              keep_ids="$(echo "$versions" | jq -r '[.[] | select((.metadata.container.tags // []) | length == 0)] | sort_by(.created_at) | reverse | .[:5] | .[].id')"
+              delete_ids="$(echo "$versions" | jq -r '[.[] | select((.metadata.container.tags // []) | length == 0)] | sort_by(.created_at) | reverse | .[5:] | .[].id')"
+              echo "package=$package keep=$keep_ids"
+              for id in $delete_ids; do
+                echo "delete $package version $id"
+                curl -fsS -X DELETE -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                  -H "Accept: application/vnd.github+json" \
+                  "https://api.github.com/repos/${GITHUB_REPOSITORY}/packages/container/${package}/versions/${id}" \
+                  || echo "delete failed for version $id"
+              done
+            done
+          } 2>&1 | tee /tmp/cleanup.log
+
+      - name: Upload cleanup log
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          package-name: ${{ github.event.repository.name }}
-          package-type: container
-          min-versions-to-keep: 5
-          delete-only-untagged-versions: 'true'
+          name: cleanup-log
+          path: /tmp/cleanup.log
+          retention-days: 3
