@@ -62,23 +62,33 @@ jobs:
 
       - name: Keep the published package public
         run: |
-          package="${GITHUB_REPOSITORY##*/}"
-          owner_type="$(curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}" | jq -r .owner.type)"
-          if [[ "$owner_type" == "Organization" ]]; then
-            base="orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}"
-          else
-            base="user/packages/container/${package}"
-          fi
-          response="$(curl -sS -w '\nHTTP %{http_code}' -X PATCH \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Content-Type: application/json" \
-            -d '{"visibility":"public"}' \
-            "https://api.github.com/${base}")"
-          echo "$response"
-          echo "$response" | grep -q '"visibility":"public"'
+          { set -x;
+            package="${GITHUB_REPOSITORY##*/}"
+            owner_type="$(curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}" | jq -r .owner.type)"
+            if [[ "$owner_type" == "Organization" ]]; then
+              base="orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}"
+            else
+              base="user/packages/container/${package}"
+            fi
+            response="$(curl -sS -w '\nHTTP %{http_code}' -X PATCH \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/json" \
+              -d '{"visibility":"public"}' \
+              "https://api.github.com/${base}")"
+            echo "$response"
+            echo "$response" | grep -q '"visibility":"public"'
+          } 2>&1 | tee /tmp/visibility.log
+
+      - name: Upload visibility log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visibility-log
+          path: /tmp/visibility.log
+          retention-days: 3
 
       - name: Smoke test
         run: |
