@@ -62,10 +62,11 @@ jobs:
 
       - name: Keep the published package public
         run: |
-          gh api -X PUT \
-            "user/packages/${{ github.event.repository.name }}/container/visibility" \
-            -f package_type=container \
-            -f visibility=public
+          package="${GITHUB_REPOSITORY##*/}"
+          case "$(gh api /repos/${GITHUB_REPOSITORY} -q .owner.type)" in
+            Organization) gh api -X PATCH "orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}" -f visibility=public ;;
+            *) gh api -X PATCH "user/packages/container/${package}" -f visibility=public ;;
+          esac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
