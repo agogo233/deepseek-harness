@@ -1,0 +1,165 @@
+name: Docker
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 3
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/lib/jvm
+          sudo docker image prune -af
+
+      - name: Set lowercase name
+        run: echo "LOWER_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        run: |
+          docker buildx build --progress=plain \
+            -f Dockerfile.DIY \
+            -t "ghcr.io/${LOWER_NAME}:latest" \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --push . 2>&1 | tee build.log
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-build-log
+          path: build.log
+          retention-days: 3
+
+      - name: Keep the published package public
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          { set -x;
+            package_names="$(curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/packages?package_type=container" \
+              | jq -r '.[].name')"
+            test -n "$package_names"
+            for package in $package_names; do
+              response="$(curl -sS -w '\nHTTP %{http_code}' -X PATCH \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "Content-Type: application/json" \
+                -d '{"visibility":"public"}' \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/packages/container/${package}")"
+              echo "$package -> $response"
+              echo "$response" | grep -q '"visibility":"public"'
+            done
+          } 2>&1 | tee /tmp/visibility.log
+
+      - name: Upload visibility log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visibility-log
+          path: /tmp/visibility.log
+          retention-days: 3
+
+      - name: Smoke test
+        run: |
+          { set -x;
+            docker rm -f dsh-smoke 2>/dev/null || true
+            docker pull ghcr.io/${{ env.LOWER_NAME }}:latest
+            docker run -d --name dsh-smoke -p 3080:3080 \
+              -e DEEPSEEK_API_KEY=unused \
+              ghcr.io/${{ env.LOWER_NAME }}:latest
+            started=0
+            for i in $(seq 1 60); do
+              if docker logs dsh-smoke 2>&1 | grep -q 'dsh web:'; then
+                started=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "$started" != 1 ]; then
+              echo "=== dsh-smoke did not print 'dsh web:' within 120s ==="
+              docker ps -a --filter name=dsh-smoke
+              docker logs dsh-smoke 2>&1 | tail -100
+              docker inspect dsh-smoke 2>&1 | tail -40
+              exit 1
+            fi
+            url=$(docker logs dsh-smoke 2>&1 | grep -o 'http://[^ ]*token=[^ ]*' | head -1)
+            test -n "$url"
+            curl -fsS "$url" -o /dev/null
+            docker rm -f dsh-smoke
+            docker run --rm \
+              -e DEEPSEEK_API_KEY=unused \
+              ghcr.io/${{ env.LOWER_NAME }}:latest \
+              headless --help | grep -q 'Answer one task and exit'
+          } 2>&1 | tee /tmp/smoke.log
+
+      - name: Upload smoke log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-log
+          path: /tmp/smoke.log
+          retention-days: 3
+
+      - name: Delete old package versions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          { set -x;
+            for package in $(curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/packages?package_type=container" \
+              | jq -r '.[].name'); do
+              versions="$(curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/packages/container/${package}/versions")"
+              keep_ids="$(echo "$versions" | jq -r '[.[] | select((.metadata.container.tags // []) | length == 0)] | sort_by(.created_at) | reverse | .[:5] | .[].id')"
+              delete_ids="$(echo "$versions" | jq -r '[.[] | select((.metadata.container.tags // []) | length == 0)] | sort_by(.created_at) | reverse | .[5:] | .[].id')"
+              echo "package=$package keep=$keep_ids"
+              for id in $delete_ids; do
+                echo "delete $package version $id"
+                curl -fsS -X DELETE -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                  -H "Accept: application/vnd.github+json" \
+                  "https://api.github.com/repos/${GITHUB_REPOSITORY}/packages/container/${package}/versions/${id}" \
+                  || echo "delete failed for version $id"
+              done
+            done
+          } 2>&1 | tee /tmp/cleanup.log
+
+      - name: Upload cleanup log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleanup-log
+          path: /tmp/cleanup.log
+          retention-days: 3
