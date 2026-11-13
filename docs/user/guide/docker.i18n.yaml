@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for docker.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/user/guide/docker.md
+/run-deepseek-harness-in-a-container:
+  en: 849aa59547ca7d9d
+  zh: 2505e678c9190892
+/run-deepseek-harness-in-a-container/what-is-in-the-image:
+  en: 19c5b1c22342b9a2
+  zh: 3663e2618c29be33
+/run-deepseek-harness-in-a-container/run-it:
+  en: 03f105331fd3b217
+  zh: 66e81568c49c2852
+/run-deepseek-harness-in-a-container/run-it/one-shot-tasks:
+  en: 68e6e5f648ad7cfb
+  zh: 0554d734a8b0c378
+/run-deepseek-harness-in-a-container/run-it/docker-compose:
+  en: a450b88fffba3a49
+  zh: a450b88fffba3a49
+/run-deepseek-harness-in-a-container/reach-it-from-the-local-network:
+  en: 0588499e5c185b64
+  zh: eee3be4e6c9d2296
+/run-deepseek-harness-in-a-container/authentication:
+  en: 447d1af1ff6b5a11
+  zh: 96b960324ab84df3
+/run-deepseek-harness-in-a-container/publish-behind-a-reverse-proxy:
+  en: 4c5fc336d290ce16
+  zh: 6923c7f844312de1
+/run-deepseek-harness-in-a-container/environment-variables:
+  en: deb1498a1d99e237
+  zh: ba5fdaf1b3056e33
+/run-deepseek-harness-in-a-container/data:
+  en: 9636303f699bfd84
+  zh: 69baa6f2bbf21c62
+/run-deepseek-harness-in-a-container/python:
+  en: e9dc95d8a51df192
+  zh: 0eb1884ccbfd4d66

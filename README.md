@@ -40,6 +40,20 @@ pnpm dsh web
 
 `pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
 
+### Run from Docker
+
+A published image runs the Web UI and one-shot tasks in one process, with data kept on volumes:
+
+```sh
+docker run -d --name dsh -p 3080:3080 \
+  -e DEEPSEEK_API_KEY=your-key \
+  -v dsh-data:/data \
+  -v "$PWD/workspace:/workspace" \
+  ghcr.io/agogo233/deepseek-harness:latest
+```
+
+The Web UI prints a startup URL carrying a token. See the [container guide](docs/user/guide/docker.md).
+
 ## Community and support
 
 - Submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).

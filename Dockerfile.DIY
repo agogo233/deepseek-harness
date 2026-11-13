@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+ARG NODE_IMAGE=node:24-bookworm-slim
+
+FROM ${NODE_IMAGE} AS build
+ENV DSH_GATE_CONCURRENCY=2 \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git ca-certificates python3 make g++ musl-tools \
+ && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@11.28.5 --activate
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    CI=true pnpm install --frozen-lockfile
+RUN pnpm run build:artifacts
+RUN pnpm exec tsx native/system/scripts/build.ts
+RUN pnpm exec tsx scripts/deploy-dsh-runtime.ts --out /out --no-restore-dev
+RUN test -f /out/lib/bin.js \
+ && test -f /out/node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html \
+ && test -f /out/node_modules/@deepseek-ai/dsh-official-bundles/package.json \
+ && test -f /out/node_modules/@deepseek-ai/dsh-experimental-ptc-runtime-python/py/bootstrap.py \
+ && test -f /out/LICENSE \
+ && test -f /out/THIRD_PARTY_NOTICES.md
+
+FROM ${NODE_IMAGE} AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash git ca-certificates tini python3 python3-pip python3-venv \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /data/dsh /data/agents /workspace \
+ && chown -R node:node /data /workspace
+WORKDIR /app
+COPY --from=build /out /app
+COPY docker/dsh-entrypoint.sh /usr/local/bin/dsh-entrypoint
+RUN chmod 755 /usr/local/bin/dsh-entrypoint
+ENV DSH_HOME=/data/dsh \
+    DSH_AGENTS_HOME=/data/agents \
+    DSH_TELEMETRY_DISABLED=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    NODE_ENV=production
+USER node
+WORKDIR /workspace
+VOLUME ["/data", "/workspace"]
+EXPOSE 3080
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/dsh-entrypoint"]
+CMD ["web"]
